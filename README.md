@@ -22,6 +22,7 @@
 - **IPv4 and IPv6**: A and AAAA records. The IP is detected separately per address family, with fallback sources.
 - **Only writes on change**: the DNS API is only called when the IP changes; the TTL is reconciled on startup.
 - **Daemon or one-shot**: runs as a long-lived container, or once with `-once` (e.g. from cron).
+- **Debug mode with secret redaction**: `-debug` or `DINGO_LOG_LEVEL=debug`; tokens never reach the log.
 - **Small, secure image**: distroless, nonroot, static binary for `amd64`, `arm64` and `arm/v7` (Raspberry Pi).
 
 ## Quick start (Docker)
@@ -56,6 +57,7 @@ You can also use [`docker-compose.yml`](docker-compose.yml) with `docker compose
 
 ```yaml
 interval: 5m                 # check interval (default 5m)
+log_level: info              # debug, info, warn, error (default info)
 
 # ip_sources:                # optional, defaults: ipify / icanhazip
 #   ipv4: [https://api.ipify.org]
@@ -79,7 +81,11 @@ records:
 |------------|---------|-------------|
 | `-config` / `DINGO_CONFIG` | `/etc/dingo/config.yaml` | Path to the config |
 | `-once` | – | One sync run, then exit |
+| `-log-level` / `DINGO_LOG_LEVEL` | `info` (or `log_level` from the config) | `debug`, `info`, `warn`, `error` |
+| `-debug` | – | Shortcut for `-log-level debug` |
 | `-version` | – | Print version |
+
+Precedence: `-debug` > `-log-level` / `DINGO_LOG_LEVEL` > `log_level` in the config. At debug level, dingo also logs the IP sources, skipped records and every provider API call (method, path, status, duration). Secrets such as tokens are always masked as `[REDACTED]`, including inside error messages.
 
 ## Providers
 

@@ -1,5 +1,6 @@
 # ${VAR} references are expanded from the environment.
 interval: 5m
+log_level: info   # debug, info, warn, error
 
 # Optional – defaults to ipify/icanhazip.
 # ip_sources:

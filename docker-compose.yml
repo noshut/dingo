@@ -7,5 +7,6 @@ services:
     network_mode: host
     environment:
       HETZNER_TOKEN: ${HETZNER_TOKEN}
+      # DINGO_LOG_LEVEL: debug
     volumes:
       - ./config.yaml:/etc/dingo/config.yaml:ro
