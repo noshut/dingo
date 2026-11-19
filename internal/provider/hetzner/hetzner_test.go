@@ -107,8 +107,9 @@ var rec = provider.Record{Zone: "Example.com", Name: "home", Type: "A", TTL: 300
 
 func TestUpsertCreatesMissingRRSet(t *testing.T) {
 	h, f := setup(t)
-	if err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1")); err != nil {
-		t.Fatal(err)
+	changed, err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1"))
+	if err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
 	}
 	got := f.rrsets["home/A"]
 	if len(got.Records) != 1 || got.Records[0].Value != "203.0.113.1" || *got.TTL != 300 {
@@ -121,8 +122,9 @@ func TestUpsertUpdatesChangedRecordsAndTTL(t *testing.T) {
 	ttl := 60
 	f.rrsets["home/A"] = rrset{Name: "home", Type: "A", TTL: &ttl, Records: []record{{Value: "198.51.100.1"}}}
 
-	if err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1")); err != nil {
-		t.Fatal(err)
+	changed, err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1"))
+	if err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
 	}
 	got := f.rrsets["home/A"]
 	if got.Records[0].Value != "203.0.113.1" || *got.TTL != 300 {
@@ -135,8 +137,9 @@ func TestUpsertNoopWhenUnchanged(t *testing.T) {
 	ttl := 300
 	f.rrsets["home/A"] = rrset{Name: "home", Type: "A", TTL: &ttl, Records: []record{{Value: "203.0.113.1"}}}
 
-	if err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1")); err != nil {
-		t.Fatal(err)
+	changed, err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1"))
+	if err != nil || changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
 	}
 	if len(f.calls) != 1 {
 		t.Fatalf("expected only the GET, got %v", f.calls)
@@ -146,7 +149,7 @@ func TestUpsertNoopWhenUnchanged(t *testing.T) {
 func TestUpsertReportsFailedAction(t *testing.T) {
 	h, f := setup(t)
 	f.failNext = "error"
-	err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1"))
+	_, err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1"))
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected action error, got %v", err)
 	}
@@ -155,7 +158,7 @@ func TestUpsertReportsFailedAction(t *testing.T) {
 func TestUpsertReturnsAPIError(t *testing.T) {
 	h, _ := setup(t)
 	h.token = "wrong"
-	err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1"))
+	_, err := h.Upsert(context.Background(), rec, netip.MustParseAddr("203.0.113.1"))
 	if err == nil || !strings.Contains(err.Error(), "unauthorized") {
 		t.Fatalf("expected unauthorized, got %v", err)
 	}
