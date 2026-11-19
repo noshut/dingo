@@ -151,19 +151,24 @@ func startWatcher(ctx context.Context, wc config.Watch, u *updater.Updater, trig
 	go w.Run(ctx)
 }
 
-// runHealthcheck is the client side of the Docker HEALTHCHECK. It prints to
-// stderr only; the config is loaded just to find the listen address.
+// runHealthcheck is the client side of the Docker HEALTHCHECK. It prefers the
+// address published by the running daemon and only falls back to the config,
+// so it works even if the daemon was started with a different -config.
 func runHealthcheck(cfgPath string) int {
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "healthcheck: invalid config:", err)
-		return 1
+	addr, ok := health.PublishedAddr()
+	if !ok {
+		cfg, err := config.Load(cfgPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "healthcheck: no running daemon found and config invalid:", err)
+			return 1
+		}
+		if !cfg.HealthEnabled() {
+			fmt.Fprintln(os.Stderr, "healthcheck: health endpoint disabled, skipping")
+			return 0
+		}
+		addr = cfg.Health.Listen
 	}
-	if !cfg.HealthEnabled() {
-		fmt.Fprintln(os.Stderr, "healthcheck: health endpoint disabled, skipping")
-		return 0
-	}
-	if err := health.Check(context.Background(), cfg.Health.Listen); err != nil {
+	if err := health.Check(context.Background(), addr); err != nil {
 		fmt.Fprintln(os.Stderr, "healthcheck:", err)
 		return 1
 	}

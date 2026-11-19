@@ -72,6 +72,9 @@ func TestServeAndCheck(t *testing.T) {
 	if checkErr != nil {
 		t.Fatalf("expected healthy: %v", checkErr)
 	}
+	if got, ok := PublishedAddr(); !ok || got != addr {
+		t.Fatalf("published addr = %q, %v; want %q", got, ok, addr)
+	}
 
 	healthy.Store(false)
 	err = Check(context.Background(), addr)

@@ -11,6 +11,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/noshut/dingo/internal/updater"
@@ -87,10 +90,29 @@ func Serve(ctx context.Context, addr string, status func() updater.Status, failA
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 	log.Debug("health endpoint listening", "addr", ln.Addr().String())
+	// Publish the actual address so `dingo -healthcheck` works regardless of
+	// how the daemon was started (e.g. a -config flag the HEALTHCHECK doesn't see).
+	if err := os.WriteFile(AddrFile(), []byte(ln.Addr().String()), 0o644); err != nil {
+		log.Debug("could not write health address file", "path", AddrFile(), "err", err)
+	} else {
+		defer func() { _ = os.Remove(AddrFile()) }()
+	}
 	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// AddrFile is where a running daemon publishes its health listen address.
+func AddrFile() string { return filepath.Join(os.TempDir(), "dingo-health.addr") }
+
+// PublishedAddr returns the address written by a running daemon, if any.
+func PublishedAddr() (string, bool) {
+	b, err := os.ReadFile(AddrFile())
+	if err != nil || len(b) == 0 {
+		return "", false
+	}
+	return strings.TrimSpace(string(b)), true
 }
 
 // Check queries /healthz on listen (wildcard hosts are replaced by loopback)

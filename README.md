@@ -107,7 +107,7 @@ health:
   fail_after: 15m            # default 3x interval
 ```
 
-The response contains only status, addresses and timestamps, never error texts or tokens.
+The response contains only status, addresses and timestamps, never error texts or tokens. The running daemon publishes its actual listen address in `/tmp/dingo-health.addr`, so `-healthcheck` also works when dingo was started with a custom `-config`.
 
 ### IP watch (optional)
 
