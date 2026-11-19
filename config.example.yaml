@@ -8,6 +8,7 @@ interval: 5m
 
 providers:
   hetzner-main:
+    # Hetzner Console → Project → Security → API tokens (Read & Write)
     type: hetzner
     settings:
       token: ${HETZNER_TOKEN}
@@ -22,3 +23,7 @@ records:
     zone: example.com
     name: home
     type: AAAA
+  - provider: hetzner-main
+    zone: example.com
+    name: "@"   # zone apex
+    type: A
