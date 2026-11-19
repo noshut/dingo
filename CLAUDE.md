@@ -36,7 +36,7 @@ The flow is `cmd/dingo/main.go` → `config` → `provider` instances → `updat
 ## Conventions
 
 - Logging uses `log/slog` through `internal/logging`, with structured key/value pairs only. `main` installs the logger as `slog.Default()`, and packages log via `slog.Debug(...)` etc. The level comes from `-debug`, then `-log-level`/`DINGO_LOG_LEVEL`, then config `log_level`, else `info`.
-- **Secrets must never be logged.** The handler redacts attributes with sensitive keys (`token`, `password`, `authorization`, ...) and scrubs registered secret values (provider settings with sensitive keys) from all strings and errors. Never log HTTP headers or request bodies. `config.Load` masks backtick-quoted values in yaml errors, because they can contain expanded `${ENV}` secrets.
+- **Secrets must never be logged.** The handler redacts attributes with sensitive keys (`token`, `password`, `authorization`, ...) and scrubs registered secret values (provider settings with sensitive keys) from all strings and errors. Never log HTTP headers or request bodies. `config.Load` masks backtick-quoted values in yaml errors, because they can contain expanded `${ENV}` secrets. Log URLs only via `ipdetect.RedactURL`, which masks userinfo and query values.
 - External dependencies are kept minimal (currently only `gopkg.in/yaml.v3`). Provider APIs use `net/http` directly, not vendor SDKs.
 - Container: distroless static, nonroot, `CGO_ENABLED=0`. IPv6 detection inside Docker needs `network_mode: host` or an IPv6-enabled network (see `docker-compose.yml`).
 
