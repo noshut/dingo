@@ -10,7 +10,7 @@ import (
 func TestLoadExpandsEnvAndAppliesDefaults(t *testing.T) {
 	t.Setenv("TEST_TOKEN", "secret")
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	os.WriteFile(path, []byte(`
+	err := os.WriteFile(path, []byte(`
 providers:
   hz:
     type: hetzner
@@ -19,6 +19,9 @@ providers:
 records:
   - {provider: hz, zone: example.com, name: home, type: A}
 `), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	c, err := Load(path)
 	if err != nil {

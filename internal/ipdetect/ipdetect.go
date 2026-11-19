@@ -67,7 +67,7 @@ func (d *Detector) query(ctx context.Context, url string) (netip.Addr, error) {
 	if err != nil {
 		return netip.Addr{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return netip.Addr{}, fmt.Errorf("status %s", resp.Status)
 	}
