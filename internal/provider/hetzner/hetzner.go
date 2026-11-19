@@ -95,7 +95,7 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("hetzner: %d %s: %s", e.Status, e.Code, e.Message)
 }
 
-func (h *Hetzner) Upsert(ctx context.Context, rec provider.Record, addr netip.Addr) error {
+func (h *Hetzner) Upsert(ctx context.Context, rec provider.Record, addr netip.Addr) (bool, error) {
 	zone := strings.ToLower(strings.TrimSuffix(rec.Zone, "."))
 	name := strings.ToLower(rec.Name)
 	rrPath := fmt.Sprintf("/zones/%s/rrsets/%s/%s", url.PathEscape(zone), url.PathEscape(name), rec.Type)
@@ -113,34 +113,37 @@ func (h *Hetzner) Upsert(ctx context.Context, rec provider.Record, addr netip.Ad
 		var resp actionResponse
 		body := rrset{Name: name, Type: rec.Type, TTL: &ttl, Records: want}
 		if err := h.do(ctx, http.MethodPost, fmt.Sprintf("/zones/%s/rrsets", url.PathEscape(zone)), body, &resp); err != nil {
-			return fmt.Errorf("create rrset: %w", err)
+			return false, fmt.Errorf("create rrset: %w", err)
 		}
-		return h.wait(ctx, resp.Action)
+		return true, h.wait(ctx, resp.Action)
 	case err != nil:
-		return fmt.Errorf("get rrset: %w", err)
+		return false, fmt.Errorf("get rrset: %w", err)
 	}
 
+	changed := false
 	if !sameRecords(cur.RRSet.Records, want) {
 		slog.Debug("records differ, replacing", "zone", zone, "name", name, "type", rec.Type, "current", cur.RRSet.Records, "want", want)
 		var resp actionResponse
 		if err := h.do(ctx, http.MethodPost, rrPath+"/actions/set_records", map[string]any{"records": want}, &resp); err != nil {
-			return fmt.Errorf("set records: %w", err)
+			return changed, fmt.Errorf("set records: %w", err)
 		}
+		changed = true
 		if err := h.wait(ctx, resp.Action); err != nil {
-			return err
+			return changed, err
 		}
 	}
 	if cur.RRSet.TTL == nil || *cur.RRSet.TTL != rec.TTL {
 		slog.Debug("ttl differs, changing", "zone", zone, "name", name, "type", rec.Type, "want", rec.TTL)
 		var resp actionResponse
 		if err := h.do(ctx, http.MethodPost, rrPath+"/actions/change_ttl", map[string]any{"ttl": rec.TTL}, &resp); err != nil {
-			return fmt.Errorf("change ttl: %w", err)
+			return changed, fmt.Errorf("change ttl: %w", err)
 		}
+		changed = true
 		if err := h.wait(ctx, resp.Action); err != nil {
-			return err
+			return changed, err
 		}
 	}
-	return nil
+	return changed, nil
 }
 
 func sameRecords(a, b []record) bool {

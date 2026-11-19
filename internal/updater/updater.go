@@ -70,12 +70,17 @@ func (u *Updater) RunOnce(ctx context.Context) {
 			log.Debug("address unchanged, skipping", "addr", addr)
 			continue
 		}
-		if err := t.Provider.Upsert(ctx, t.Record, addr); err != nil {
-			log.Error("update failed", "addr", addr, "err", err)
+		changed, err := t.Provider.Upsert(ctx, t.Record, addr)
+		if err != nil {
+			log.Error("update failed", "addr", addr, "partially_applied", changed, "err", err)
 			continue
 		}
 		u.last[i] = addr
-		log.Info("record updated", "addr", addr)
+		if changed {
+			log.Info("record updated", "addr", addr)
+		} else {
+			log.Debug("record already up to date", "addr", addr)
+		}
 	}
 }
 

@@ -23,7 +23,9 @@ type Record struct {
 // does nothing otherwise. This is how providers without native DynDNS
 // (e.g. Hetzner) are supported.
 type Provider interface {
-	Upsert(ctx context.Context, rec Record, addr netip.Addr) error
+	// Upsert reports whether it wrote anything. changed may be true together
+	// with an error if a later step of a multi-step update failed.
+	Upsert(ctx context.Context, rec Record, addr netip.Addr) (changed bool, err error)
 }
 
 // Factory builds a Provider from its settings block in the config.
