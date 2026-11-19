@@ -21,6 +21,7 @@
 - **Multi-provider**: several providers and accounts in one config. Each record picks its provider.
 - **IPv4 and IPv6**: A and AAAA records. The IP is detected separately per address family, with fallback sources.
 - **Only writes on change**: the DNS API is only called when the IP changes; the TTL is reconciled on startup.
+- **Fast IP change detection**: optionally pings the current public IPv4. When the router stops answering (line down or new IP), a sync runs immediately instead of waiting for the next interval.
 - **Daemon or one-shot**: runs as a long-lived container, or once with `-once` (e.g. from cron).
 - **Debug mode with secret redaction**: `-debug` or `DINGO_LOG_LEVEL=debug`; tokens never reach the log.
 - **Small, secure image**: distroless, nonroot, static binary for `amd64`, `arm64` and `arm/v7` (Raspberry Pi).
@@ -86,6 +87,26 @@ records:
 | `-version` | – | Print version |
 
 Precedence: `-debug` > `-log-level` / `DINGO_LOG_LEVEL` > `log_level` in the config. At debug level, dingo also logs the IP sources, skipped records and every provider API call (method, path, status, duration). Secrets such as tokens are always masked as `[REDACTED]`, including inside error messages.
+
+### IP watch (optional)
+
+```yaml
+watch:
+  enabled: true
+  interval: 15s   # ping interval (default 15s)
+  failures: 2     # consecutive failed pings before a sync is triggered (default 2)
+```
+
+The router answers pings to its own public IP locally. If that stops working, the line is down or the IP has changed, so dingo triggers a sync right away. While the IP stays unreachable, further syncs back off exponentially (up to `interval`), so a router that ignores ICMP doesn't cause constant requests. IPv4 only; IPv6 is still checked by the regular interval.
+
+ICMP needs one of the following:
+- **Unprivileged ping** (recommended): the host allows ping sockets for the container's group (`65532`). Many distributions already do. Otherwise:
+  ```bash
+  echo 'net.ipv4.ping_group_range = 0 2147483647' | sudo tee /etc/sysctl.d/99-ping.conf && sudo sysctl --system
+  ```
+- **Raw sockets**: run as root (`user: "0"`). `cap_add: NET_RAW` alone is not enough for the nonroot image.
+
+If neither is available, dingo logs `ip watch disabled` and keeps running with the regular interval.
 
 ## Providers
 

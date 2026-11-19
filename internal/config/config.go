@@ -18,6 +18,15 @@ type Config struct {
 	IPSources IPSources                 `yaml:"ip_sources"`
 	Providers map[string]ProviderConfig `yaml:"providers"`
 	Records   []Record                  `yaml:"records"`
+	Watch     Watch                     `yaml:"watch"`
+}
+
+// Watch pings the current public IPv4 address to notice an outage or IP
+// change early and trigger an immediate sync.
+type Watch struct {
+	Enabled  bool          `yaml:"enabled"`
+	Interval time.Duration `yaml:"interval"` // default 15s
+	Failures int           `yaml:"failures"` // consecutive failed pings, default 2
 }
 
 type IPSources struct {
@@ -66,6 +75,12 @@ func Load(path string) (*Config, error) {
 func (c *Config) applyDefaults() {
 	if c.Interval == 0 {
 		c.Interval = 5 * time.Minute
+	}
+	if c.Watch.Interval == 0 {
+		c.Watch.Interval = 15 * time.Second
+	}
+	if c.Watch.Failures == 0 {
+		c.Watch.Failures = 2
 	}
 	if len(c.IPSources.IPv4) == 0 {
 		c.IPSources.IPv4 = defaultIPv4
