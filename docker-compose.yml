@@ -1,0 +1,11 @@
+services:
+  dingo:
+    build: .
+    image: dingo:latest
+    restart: unless-stopped
+    # host network so IPv6 detection sees the host's real address
+    network_mode: host
+    environment:
+      HETZNER_TOKEN: ${HETZNER_TOKEN}
+    volumes:
+      - ./config.yaml:/etc/dingo/config.yaml:ro
