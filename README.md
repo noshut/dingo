@@ -20,7 +20,7 @@
 
 - **Multi-provider**: several providers and accounts in one config. Each record picks its provider.
 - **IPv4 and IPv6**: A and AAAA records. The IP is detected separately per address family, with fallback sources.
-- **Only writes on change**: the DNS API is called only when the IP or TTL actually differs.
+- **Only writes on change**: the DNS API is only called when the IP changes; the TTL is reconciled on startup.
 - **Daemon or one-shot**: runs as a long-lived container, or once with `-once` (e.g. from cron).
 - **Small, secure image**: distroless, nonroot, static binary for `amd64`, `arm64` and `arm/v7` (Raspberry Pi).
 
