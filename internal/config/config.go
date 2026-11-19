@@ -19,7 +19,18 @@ type Config struct {
 	Providers map[string]ProviderConfig `yaml:"providers"`
 	Records   []Record                  `yaml:"records"`
 	Watch     Watch                     `yaml:"watch"`
+	Health    Health                    `yaml:"health"`
 }
+
+// Health configures the /healthz endpoint used by `dingo -healthcheck`.
+type Health struct {
+	Enabled   *bool         `yaml:"enabled"`    // default true
+	Listen    string        `yaml:"listen"`     // default 127.0.0.1:9180
+	FailAfter time.Duration `yaml:"fail_after"` // default 3x interval
+}
+
+// HealthEnabled reports whether the health endpoint should run.
+func (c *Config) HealthEnabled() bool { return c.Health.Enabled == nil || *c.Health.Enabled }
 
 // Watch pings the current public IPv4 address to notice an outage or IP
 // change early and trigger an immediate sync.
@@ -75,6 +86,12 @@ func Load(path string) (*Config, error) {
 func (c *Config) applyDefaults() {
 	if c.Interval == 0 {
 		c.Interval = 5 * time.Minute
+	}
+	if c.Health.Listen == "" {
+		c.Health.Listen = "127.0.0.1:9180"
+	}
+	if c.Health.FailAfter == 0 {
+		c.Health.FailAfter = 3 * c.Interval
 	}
 	if c.Watch.Interval == 0 {
 		c.Watch.Interval = 15 * time.Second

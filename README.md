@@ -22,6 +22,7 @@
 - **IPv4 and IPv6**: A and AAAA records. The IP is detected separately per address family, with fallback sources.
 - **Only writes on change**: the DNS API is only called when the IP changes; the TTL is reconciled on startup.
 - **Fast IP change detection**: optionally pings the current public IPv4. When the router stops answering (line down or new IP), a sync runs immediately instead of waiting for the next interval.
+- **Health check**: `/healthz` endpoint and a built-in Docker `HEALTHCHECK`.
 - **Daemon or one-shot**: runs as a long-lived container, or once with `-once` (e.g. from cron).
 - **Debug mode with secret redaction**: `-debug` or `DINGO_LOG_LEVEL=debug`; tokens never reach the log.
 - **Small, secure image**: distroless, nonroot, static binary for `amd64`, `arm64` and `arm/v7` (Raspberry Pi).
@@ -84,9 +85,29 @@ records:
 | `-once` | – | One sync run, then exit |
 | `-log-level` / `DINGO_LOG_LEVEL` | `info` (or `log_level` from the config) | `debug`, `info`, `warn`, `error` |
 | `-debug` | – | Shortcut for `-log-level debug` |
+| `-healthcheck` | – | Query `/healthz` of the running instance, exit `0` = healthy (used by the Docker `HEALTHCHECK`) |
 | `-version` | – | Print version |
 
 Precedence: `-debug` > `-log-level` / `DINGO_LOG_LEVEL` > `log_level` in the config. At debug level, dingo also logs the IP sources, skipped records and every provider API call (method, path, status, duration). Secrets such as tokens are always masked as `[REDACTED]`, including inside error messages.
+
+### Health check
+
+dingo serves `GET /healthz` on `127.0.0.1:9180` (JSON, `200` or `503`). The Docker image has a built-in `HEALTHCHECK` that calls `dingo -healthcheck`, so `docker ps` shows `healthy` / `unhealthy`.
+
+| Status | HTTP | Meaning |
+|--------|------|---------|
+| `ok` | 200 | Loop runs, all records are in sync (or failed only briefly) |
+| `failing` | 503 | A record hasn't synced successfully for longer than `fail_after`. Example: IPv6 detection fails permanently |
+| `stalled` | 503 | No sync cycle completed for over 2× `interval` + 2 min |
+
+```yaml
+health:
+  enabled: true              # default true
+  listen: 127.0.0.1:9180     # default; with network_mode: host this is the host's loopback
+  fail_after: 15m            # default 3x interval
+```
+
+The response contains only status, addresses and timestamps, never error texts or tokens.
 
 ### IP watch (optional)
 

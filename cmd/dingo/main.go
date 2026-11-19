@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/noshut/dingo/internal/config"
+	"github.com/noshut/dingo/internal/health"
 	"github.com/noshut/dingo/internal/ipdetect"
 	"github.com/noshut/dingo/internal/logging"
 	"github.com/noshut/dingo/internal/provider"
@@ -31,11 +32,15 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	logLevel := flag.String("log-level", os.Getenv("DINGO_LOG_LEVEL"), "log level: debug, info, warn, error (overrides config)")
 	debug := flag.Bool("debug", false, "shortcut for -log-level debug")
+	healthcheck := flag.Bool("healthcheck", false, "query the health endpoint of a running dingo and exit 0 if healthy (for Docker HEALTHCHECK)")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println(version)
 		return
+	}
+	if *healthcheck {
+		os.Exit(runHealthcheck(*cfgPath))
 	}
 
 	level := new(slog.LevelVar)
@@ -106,6 +111,13 @@ func main() {
 		u.RunOnce(ctx)
 		return
 	}
+	if cfg.HealthEnabled() {
+		go func() {
+			if err := health.Serve(ctx, cfg.Health.Listen, u.Status, cfg.Health.FailAfter, log); err != nil {
+				log.Error("health endpoint failed", "addr", cfg.Health.Listen, "err", err)
+			}
+		}()
+	}
 	trigger := make(chan struct{}, 1)
 	if cfg.Watch.Enabled {
 		startWatcher(ctx, cfg.Watch, u, trigger, log)
@@ -137,6 +149,25 @@ func startWatcher(ctx context.Context, wc config.Watch, u *updater.Updater, trig
 	}
 	log.Debug("ip watch started", "interval", wc.Interval, "failures", wc.Failures)
 	go w.Run(ctx)
+}
+
+// runHealthcheck is the client side of the Docker HEALTHCHECK. It prints to
+// stderr only; the config is loaded just to find the listen address.
+func runHealthcheck(cfgPath string) int {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "healthcheck: invalid config:", err)
+		return 1
+	}
+	if !cfg.HealthEnabled() {
+		fmt.Fprintln(os.Stderr, "healthcheck: health endpoint disabled, skipping")
+		return 0
+	}
+	if err := health.Check(context.Background(), cfg.Health.Listen); err != nil {
+		fmt.Fprintln(os.Stderr, "healthcheck:", err)
+		return 1
+	}
+	return 0
 }
 
 func envOr(key, def string) string {
