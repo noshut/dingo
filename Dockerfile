@@ -11,5 +11,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /dingo /dingo
+# Queries the local /healthz endpoint (health.listen, default 127.0.0.1:9180).
+HEALTHCHECK --interval=1m --timeout=10s --start-period=1m --retries=3 \
+    CMD ["/dingo", "-healthcheck"]
 ENTRYPOINT ["/dingo"]
 CMD ["-config", "/etc/dingo/config.yaml"]

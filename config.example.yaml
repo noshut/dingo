@@ -34,3 +34,8 @@ records:
 #   enabled: true
 #   interval: 15s
 #   failures: 2
+
+# Health endpoint for `dingo -healthcheck` / Docker HEALTHCHECK (enabled by default).
+# health:
+#   listen: 127.0.0.1:9180
+#   fail_after: 15m   # default 3x interval
