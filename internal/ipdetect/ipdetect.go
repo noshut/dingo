@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -51,8 +52,10 @@ func (d *Detector) Detect(ctx context.Context) (netip.Addr, error) {
 	for _, src := range d.sources {
 		addr, err := d.query(ctx, src)
 		if err == nil {
+			slog.Debug("ip source answered", "source", src, "addr", addr)
 			return addr, nil
 		}
+		slog.Debug("ip source failed, trying next", "source", src, "err", err)
 		errs = append(errs, fmt.Errorf("%s: %w", src, err))
 	}
 	return netip.Addr{}, errors.Join(errs...)
