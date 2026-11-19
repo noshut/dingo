@@ -1,19 +1,117 @@
-# dingo
+<p align="center">
+  <img src="docs/assets/dingo.webp" alt="dingo – DynDNS gopher" width="360">
+</p>
 
-DynDNS client written in Go – keeps A/AAAA records in sync with your public IP, also for DNS providers without native DynDNS support (e.g. Hetzner).
+<h1 align="center">dingo</h1>
+
+<p align="center">
+  DynDNS client written in Go. It keeps A/AAAA records in sync with your public IP,<br>
+  including DNS providers <b>without native DynDNS support</b> such as Hetzner.
+</p>
+
+<p align="center">
+  <a href="https://github.com/noshut/dingo/actions/workflows/ci.yml"><img src="https://github.com/noshut/dingo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/noshut/dingo/actions/workflows/release.yml"><img src="https://github.com/noshut/dingo/actions/workflows/release.yml/badge.svg" alt="Release"></a>
+  <a href="https://hub.docker.com/r/karlender/dingo"><img src="https://img.shields.io/docker/pulls/karlender/dingo" alt="Docker Pulls"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/noshut/dingo" alt="License"></a>
+</p>
+
+## Features
+
+- **Multi-provider**: several providers and accounts in one config. Each record picks its provider.
+- **IPv4 and IPv6**: A and AAAA records. The IP is detected separately per address family, with fallback sources.
+- **Only writes on change**: the DNS API is only called when the IP changes; the TTL is reconciled on startup.
+- **Daemon or one-shot**: runs as a long-lived container, or once with `-once` (e.g. from cron).
+- **Small, secure image**: distroless, nonroot, static binary for `amd64`, `arm64` and `arm/v7` (Raspberry Pi).
 
 ## Quick start (Docker)
 
 ```bash
-cp config.example.yaml config.yaml   # edit zones/records
-export HETZNER_TOKEN=...
-docker compose up -d
+curl -O https://raw.githubusercontent.com/noshut/dingo/main/config.example.yaml
+mv config.example.yaml config.yaml   # adjust zones/records
 ```
 
-## Supported providers
+```bash
+docker run -d --name dingo --restart unless-stopped --network host \
+  -e HETZNER_TOKEN=... \
+  -v "$PWD/config.yaml:/etc/dingo/config.yaml:ro" \
+  karlender/dingo:latest
+```
 
-| Type      | Status      |
-|-----------|-------------|
-| `hetzner` | ✅ Hetzner Cloud API (Console DNS), token with read & write |
+You can also use [`docker-compose.yml`](docker-compose.yml) with `docker compose up -d`.
 
-> dingo owns every record it manages: on update, the whole RRSet (name + type) is replaced with the current IP. Don't configure names that hold additional, manually managed A/AAAA values.
+> **IPv6:** use `--network host` (or an IPv6-enabled Docker network). Otherwise the container can't see the host's public IPv6.
+
+### Image tags
+
+| Tag | Content |
+|-----|---------|
+| `latest`, `X.Y.Z`, `X.Y`, `X` | Releases (git tag `vX.Y.Z`) |
+| `edge` | Current state of `main` |
+| `sha-<commit>` | A specific commit on `main` |
+
+## Configuration
+
+`${VAR}` is expanded from the environment, so tokens belong in env vars and not in the file.
+
+```yaml
+interval: 5m                 # check interval (default 5m)
+
+# ip_sources:                # optional, defaults: ipify / icanhazip
+#   ipv4: [https://api.ipify.org]
+#   ipv6: [https://api6.ipify.org]
+
+providers:
+  hetzner-main:              # free-form name, referenced by records
+    type: hetzner
+    settings:
+      token: ${HETZNER_TOKEN}
+
+records:
+  - provider: hetzner-main
+    zone: example.com
+    name: home               # "@" = zone apex
+    type: A                  # A or AAAA
+    ttl: 300                 # optional, default 300
+```
+
+| Flag / env | Default | Description |
+|------------|---------|-------------|
+| `-config` / `DINGO_CONFIG` | `/etc/dingo/config.yaml` | Path to the config |
+| `-once` | – | One sync run, then exit |
+| `-version` | – | Print version |
+
+## Providers
+
+| Type | API | Token |
+|------|-----|-------|
+| `hetzner` | [Hetzner Cloud API](https://docs.hetzner.cloud/reference/cloud#tag/zone-rrsets) (DNS in the Hetzner Console) | Console → Project → Security → API tokens, **Read & Write** |
+
+> dingo **owns** every record it manages: on update, the whole RRSet (name + type) is replaced with the current IP. Don't configure names that hold additional, manually managed A/AAAA values.
+
+More providers can be added easily; see [Development](#development).
+
+## Development
+
+Requires Go ≥ 1.24.
+
+```bash
+make test     # go test -race ./...
+make lint     # go vet + gofmt (CI additionally runs golangci-lint)
+make build    # -> bin/dingo
+go run ./cmd/dingo -config config.yaml -once
+```
+
+**New provider:** create `internal/provider/<name>/`, implement `provider.Provider` (an idempotent `Upsert`), call `provider.Register("<name>", New)` in `init()`, and add a blank import in `cmd/dingo/main.go`.
+
+Changes to `main` go only through pull requests with green CI (`lint`, `test`, `docker`). Releases are created by a tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+This publishes the Docker image and creates a GitHub Release with generated release notes.
+
+## License
+
+[MIT](LICENSE)
