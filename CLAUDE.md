@@ -39,6 +39,6 @@ The flow is `cmd/dingo/main.go` → `config` → `provider` instances → `updat
 - External dependencies are kept minimal (currently only `gopkg.in/yaml.v3`). Provider APIs use `net/http` directly, not vendor SDKs.
 - Container: distroless static, nonroot, `CGO_ENABLED=0`. IPv6 detection inside Docker needs `network_mode: host` or an IPv6-enabled network (see `docker-compose.yml`).
 
-## Status
+## Providers
 
-The skeleton is in place. The Hetzner provider (`internal/provider/hetzner`) is a stub that returns "not implemented".
+- **hetzner**: uses the DNS part of the Hetzner Cloud API (`api.hetzner.cloud/v1`, *not* the legacy `dns.hetzner.com`), with a Cloud project token (read & write). Upsert does `GET /zones/{zone}/rrsets/{name}/{type}`, then on `not_found` it calls `POST /zones/{zone}/rrsets`. Otherwise it calls `actions/set_records` and/or `actions/change_ttl`. Every write returns an Action that is polled via `GET /zones/actions/{id}` until it is no longer `running`. The apex is written as `@`, and names must be lowercase. Tests use an in-memory fake API (`settings.endpoint` overrides the base URL). The OpenAPI spec is at `https://docs.hetzner.cloud/cloud.spec.json`.

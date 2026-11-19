@@ -14,4 +14,4 @@ docker compose up -d
 
 | Type      | Status      |
 |-----------|-------------|
-| `hetzner` | in progress |
+| `hetzner` | ✅ Hetzner Cloud API (Console DNS), token with read & write |
