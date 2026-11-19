@@ -4,6 +4,9 @@
 // Hetzner has no native DynDNS endpoint, so Upsert reads the RRSet and then
 // creates it or replaces its records/TTL. All writes return an Action that is
 // polled until it finishes.
+//
+// dingo owns every RRSet it manages: set_records replaces the whole set, so any
+// additional values on a configured name/type are removed on update.
 package hetzner
 
 import (
