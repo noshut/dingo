@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,10 +18,19 @@ import (
 	_ "github.com/noshut/dingo/internal/provider/hetzner"
 )
 
+// version is set at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	cfgPath := flag.String("config", envOr("DINGO_CONFIG", "/etc/dingo/config.yaml"), "path to config file")
 	once := flag.Bool("once", false, "run a single update and exit")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -63,7 +73,7 @@ func main() {
 		u.RunOnce(ctx)
 		return
 	}
-	log.Info("dingo started", "interval", cfg.Interval, "records", len(u.Targets))
+	log.Info("dingo started", "version", version, "interval", cfg.Interval, "records", len(u.Targets))
 	u.Run(ctx)
 	log.Info("dingo stopped")
 }

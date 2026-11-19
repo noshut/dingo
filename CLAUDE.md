@@ -17,7 +17,9 @@ go run ./cmd/dingo -config config.yaml -once  # one sync run, then exit
 make docker                                 # docker build -t dingo:latest .
 ```
 
-CI (`.github/workflows/ci.yml`) runs the jobs `lint` (`go mod tidy -diff`, `make lint`, golangci-lint v2.1.6), `test` (`make test`, `make build`) and `docker` (image build). These job names are required checks for auto-merge, so don't rename them. Run `golangci-lint run ./...` locally before pushing.
+CI (`.github/workflows/ci.yml`) runs the jobs `lint` (`go mod tidy -diff`, `make lint`, golangci-lint v2.1.6), `test` (`make test`, `make build`) and `docker` (image build). These job names are required checks for auto-merge, so don't rename them. Run `golangci-lint run ./...` locally before pushing. `main` is protected by a ruleset: changes only land via PR with green `lint`/`test`/`docker`, and auto-merge is enabled.
+
+Release (`.github/workflows/release.yml`) pushes multi-arch images (amd64, arm64, arm/v7) to Docker Hub `karlender/dingo`. A push to `main` publishes `:edge` and `:sha-<short>`. A `vX.Y.Z` tag publishes `:X.Y.Z`, `:X.Y`, `:X` (not for v0.x) and `:latest`, and creates a GitHub Release with generated notes. This needs the repo secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. The version is injected via `-X main.version` (build-arg `VERSION`) and shown by `dingo -version`. The Dockerfile cross-compiles on `$BUILDPLATFORM` (no QEMU), so keep the final stage free of `RUN`.
 
 Without `-once`, the binary runs as a daemon (default). The config path comes from `-config`, falling back to `$DINGO_CONFIG` and then `/etc/dingo/config.yaml`.
 
