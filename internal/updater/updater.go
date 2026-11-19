@@ -28,8 +28,54 @@ type Updater struct {
 	// when the IP is unchanged.
 	last map[int]netip.Addr
 
-	mu       sync.RWMutex
-	detected map[ipdetect.Family]netip.Addr // last successfully detected address
+	mu        sync.RWMutex
+	detected  map[ipdetect.Family]netip.Addr // last successfully detected address
+	started   time.Time
+	lastCycle time.Time
+	records   []RecordStatus
+}
+
+// RecordStatus is the sync state of one target. It intentionally carries no
+// error text, so it can be exposed without leaking secrets.
+type RecordStatus struct {
+	Provider string    `json:"provider"`
+	Zone     string    `json:"zone"`
+	Name     string    `json:"name"`
+	Type     string    `json:"type"`
+	Addr     string    `json:"addr,omitempty"`
+	Failing  bool      `json:"failing"`
+	LastOK   time.Time `json:"last_ok,omitzero"`
+}
+
+// Status is a snapshot of the updater state, used by the health endpoint.
+type Status struct {
+	Interval  time.Duration
+	Started   time.Time
+	LastCycle time.Time // zero until the first cycle finished
+	Records   []RecordStatus
+}
+
+// Status returns a copy of the current state. Safe for concurrent use.
+func (u *Updater) Status() Status {
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+	return Status{
+		Interval:  u.Interval,
+		Started:   u.started,
+		LastCycle: u.lastCycle,
+		Records:   append([]RecordStatus(nil), u.records...),
+	}
+}
+
+func (u *Updater) setRecord(i int, addr netip.Addr, ok bool) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	r := &u.records[i]
+	r.Failing = !ok
+	if ok {
+		r.Addr = addr.String()
+		r.LastOK = time.Now()
+	}
 }
 
 // CurrentAddr returns the last successfully detected address of a family.
@@ -61,9 +107,21 @@ func (u *Updater) Run(ctx context.Context, trigger <-chan struct{}) {
 // RunOnce detects the current addresses and upserts every record whose
 // address changed since the last successful update.
 func (u *Updater) RunOnce(ctx context.Context) {
+	u.mu.Lock()
 	if u.last == nil {
 		u.last = map[int]netip.Addr{}
+		u.started = time.Now()
+		u.records = make([]RecordStatus, len(u.Targets))
+		for i, t := range u.Targets {
+			u.records[i] = RecordStatus{Provider: t.ProviderName, Zone: t.Record.Zone, Name: t.Record.Name, Type: t.Record.Type}
+		}
 	}
+	u.mu.Unlock()
+	defer func() {
+		u.mu.Lock()
+		u.lastCycle = time.Now()
+		u.mu.Unlock()
+	}()
 	addrs := map[ipdetect.Family]netip.Addr{}
 	for i, t := range u.Targets {
 		fam := familyOf(t.Record.Type)
@@ -85,19 +143,23 @@ func (u *Updater) RunOnce(ctx context.Context) {
 			addrs[fam] = addr // cache invalid addr too, so we don't retry per record
 		}
 		if !addr.IsValid() {
+			u.setRecord(i, addr, false)
 			continue
 		}
 		log := u.Log.With("provider", t.ProviderName, "zone", t.Record.Zone, "name", t.Record.Name, "type", t.Record.Type)
 		if u.last[i] == addr {
 			log.Debug("address unchanged, skipping", "addr", addr)
+			u.setRecord(i, addr, true)
 			continue
 		}
 		changed, err := t.Provider.Upsert(ctx, t.Record, addr)
 		if err != nil {
 			log.Error("update failed", "addr", addr, "partially_applied", changed, "err", err)
+			u.setRecord(i, addr, false)
 			continue
 		}
 		u.last[i] = addr
+		u.setRecord(i, addr, true)
 		if changed {
 			log.Info("record updated", "addr", addr)
 		} else {
