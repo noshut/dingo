@@ -70,12 +70,20 @@ func TestChecksum(t *testing.T) {
 }
 
 func TestPingLoopback(t *testing.T) {
-	p := &ICMPPinger{Timeout: time.Second}
-	if err := p.Probe(); err != nil {
-		t.Skipf("no ICMP socket available: %v", err)
-	}
-	if err := p.Ping(context.Background(), netip.MustParseAddr("127.0.0.1")); err != nil {
-		t.Fatalf("ping 127.0.0.1 via %s: %v", p.network, err)
+	// Exercise each socket type explicitly, skipping the ones this
+	// environment doesn't permit (ping_group_range / CAP_NET_RAW).
+	for _, network := range []string{networkDatagram, networkRaw} {
+		t.Run(network, func(t *testing.T) {
+			c, err := listen(network)
+			if err != nil {
+				t.Skipf("not available: %v", err)
+			}
+			_ = c.Close()
+			p := &ICMPPinger{Timeout: time.Second, network: network}
+			if err := p.Ping(context.Background(), netip.MustParseAddr("127.0.0.1")); err != nil {
+				t.Fatalf("ping 127.0.0.1: %v", err)
+			}
+		})
 	}
 }
 
@@ -86,5 +94,18 @@ func TestRecoveryResetsFailures(t *testing.T) {
 	// at most the triggers before recovery (backoff 5,10,20ms within 30ms)
 	if n < 1 || n > 3 {
 		t.Fatalf("expected 1..3 triggers before recovery, got %d", n)
+	}
+}
+
+func TestParseEchoReplyWithIPHeader(t *testing.T) {
+	reply := echoRequest(7, 42, []byte("dingo"))
+	reply[0] = 0 // echo reply
+	ipHdr := make([]byte, 20)
+	ipHdr[0] = 0x45
+	for _, b := range [][]byte{reply, append(ipHdr, reply...)} {
+		id, seq, ok := parseEchoReply(b)
+		if !ok || id != 7 || seq != 42 {
+			t.Fatalf("parse %x: id=%d seq=%d ok=%v", b, id, seq, ok)
+		}
 	}
 }

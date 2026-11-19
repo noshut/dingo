@@ -17,15 +17,15 @@ import (
 // gid) and falls back to raw sockets (needs root or CAP_NET_RAW).
 type ICMPPinger struct {
 	Timeout time.Duration
-	network string // "udp4" or "ip4:icmp", chosen by Probe
+	network string // networkDatagram or networkRaw, chosen by Probe
 	seq     atomic.Uint32
 }
 
 // Probe checks which socket type is usable. It must succeed before Ping.
 func (p *ICMPPinger) Probe() error {
 	var errs []error
-	for _, network := range []string{"udp4", "ip4:icmp"} {
-		c, err := net.ListenPacket(network, "0.0.0.0")
+	for _, network := range []string{networkDatagram, networkRaw} {
+		c, err := listen(network)
 		if err == nil {
 			_ = c.Close()
 			p.network = network
@@ -44,7 +44,7 @@ func (p *ICMPPinger) Ping(ctx context.Context, addr netip.Addr) error {
 	if p.network == "" {
 		return errors.New("ping: Probe not called")
 	}
-	conn, err := net.ListenPacket(p.network, "0.0.0.0")
+	conn, err := listen(p.network)
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func (p *ICMPPinger) Ping(ctx context.Context, addr netip.Addr) error {
 	msg := echoRequest(id, seq, payload)
 
 	var dst net.Addr = &net.IPAddr{IP: addr.AsSlice()}
-	if p.network == "udp4" {
+	if p.network == networkDatagram {
 		dst = &net.UDPAddr{IP: addr.AsSlice()}
 	}
 	if _, err := conn.WriteTo(msg, dst); err != nil {
@@ -86,10 +86,22 @@ func (p *ICMPPinger) Ping(ctx context.Context, addr netip.Addr) error {
 		}
 		rid, rseq, ok := parseEchoReply(buf[:n])
 		// Datagram sockets rewrite the identifier, so only raw sockets check it.
-		if ok && rseq == seq && (p.network == "udp4" || rid == id) {
+		if ok && rseq == seq && (p.network == networkDatagram || rid == id) {
 			return nil
 		}
 	}
+}
+
+const (
+	networkDatagram = "icmp-dgram" // SOCK_DGRAM + IPPROTO_ICMP ("ping socket")
+	networkRaw      = "ip4:icmp"   // raw socket, needs CAP_NET_RAW
+)
+
+func listen(network string) (net.PacketConn, error) {
+	if network == networkDatagram {
+		return listenICMPDatagram()
+	}
+	return net.ListenPacket(networkRaw, "0.0.0.0")
 }
 
 func sameIP(a net.Addr, want netip.Addr) bool {
@@ -117,6 +129,13 @@ func echoRequest(id, seq uint16, payload []byte) []byte {
 }
 
 func parseEchoReply(b []byte) (id, seq uint16, ok bool) {
+	// Darwin datagram sockets include the IPv4 header; Linux strips it.
+	// 0x4X can't be a valid ICMP type here, so the check is unambiguous.
+	if len(b) >= 20 && b[0]>>4 == 4 {
+		if ihl := int(b[0]&0x0f) * 4; ihl >= 20 && len(b) >= ihl {
+			b = b[ihl:]
+		}
+	}
 	if len(b) < 8 || b[0] != 0 { // echo reply
 		return 0, 0, false
 	}
