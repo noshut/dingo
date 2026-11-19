@@ -1,0 +1,24 @@
+# ${VAR} references are expanded from the environment.
+interval: 5m
+
+# Optional – defaults to ipify/icanhazip.
+# ip_sources:
+#   ipv4: [https://api.ipify.org]
+#   ipv6: [https://api6.ipify.org]
+
+providers:
+  hetzner-main:
+    type: hetzner
+    settings:
+      token: ${HETZNER_TOKEN}
+
+records:
+  - provider: hetzner-main
+    zone: example.com
+    name: home
+    type: A
+    ttl: 300
+  - provider: hetzner-main
+    zone: example.com
+    name: home
+    type: AAAA
