@@ -57,13 +57,19 @@ func (u *Updater) RunOnce(ctx context.Context) {
 			addr, err = u.Detectors[fam].Detect(ctx)
 			if err != nil {
 				u.Log.Error("ip detection failed", "family", fam, "err", err)
+			} else {
+				u.Log.Debug("public ip detected", "family", fam, "addr", addr)
 			}
 			addrs[fam] = addr // cache invalid addr too, so we don't retry per record
 		}
-		if !addr.IsValid() || u.last[i] == addr {
+		if !addr.IsValid() {
 			continue
 		}
 		log := u.Log.With("provider", t.ProviderName, "zone", t.Record.Zone, "name", t.Record.Name, "type", t.Record.Type)
+		if u.last[i] == addr {
+			log.Debug("address unchanged, skipping", "addr", addr)
+			continue
+		}
 		if err := t.Provider.Upsert(ctx, t.Record, addr); err != nil {
 			log.Error("update failed", "addr", addr, "err", err)
 			continue

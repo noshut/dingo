@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
+	neturl "net/url"
 	"strings"
 	"time"
 )
@@ -50,10 +52,13 @@ func (d *Detector) Detect(ctx context.Context) (netip.Addr, error) {
 	var errs []error
 	for _, src := range d.sources {
 		addr, err := d.query(ctx, src)
+		safe := RedactURL(src)
 		if err == nil {
+			slog.Debug("ip source answered", "source", safe, "addr", addr)
 			return addr, nil
 		}
-		errs = append(errs, fmt.Errorf("%s: %w", src, err))
+		slog.Debug("ip source failed, trying next", "source", safe, "err", err)
+		errs = append(errs, fmt.Errorf("%s: %w", safe, err))
 	}
 	return netip.Addr{}, errors.Join(errs...)
 }
@@ -65,6 +70,11 @@ func (d *Detector) query(ctx context.Context, url string) (netip.Addr, error) {
 	}
 	resp, err := d.client.Do(req)
 	if err != nil {
+		// *url.Error embeds the full request URL (incl. query); drop it.
+		var uerr *neturl.Error
+		if errors.As(err, &uerr) {
+			return netip.Addr{}, uerr.Err
+		}
 		return netip.Addr{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -84,4 +94,25 @@ func (d *Detector) query(ctx context.Context, url string) (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("got %s, want IPv%d", addr, d.family)
 	}
 	return addr, nil
+}
+
+// RedactURL masks credentials in a source URL (userinfo and query values)
+// so it can be logged safely.
+func RedactURL(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return "[invalid url]"
+	}
+	if u.User != nil {
+		u.User = neturl.User("REDACTED")
+	}
+	if u.RawQuery != "" {
+		q := u.Query()
+		for k := range q {
+			q[k] = []string{"REDACTED"}
+		}
+		u.RawQuery = q.Encode()
+	}
+	u.Fragment = ""
+	return u.String()
 }

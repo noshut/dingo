@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -107,6 +108,7 @@ func (h *Hetzner) Upsert(ctx context.Context, rec provider.Record, addr netip.Ad
 	var apiErr *APIError
 	switch {
 	case errors.As(err, &apiErr) && apiErr.Code == "not_found":
+		slog.Debug("rrset not found, creating", "zone", zone, "name", name, "type", rec.Type)
 		ttl := rec.TTL
 		var resp actionResponse
 		body := rrset{Name: name, Type: rec.Type, TTL: &ttl, Records: want}
@@ -119,6 +121,7 @@ func (h *Hetzner) Upsert(ctx context.Context, rec provider.Record, addr netip.Ad
 	}
 
 	if !sameRecords(cur.RRSet.Records, want) {
+		slog.Debug("records differ, replacing", "zone", zone, "name", name, "type", rec.Type, "current", cur.RRSet.Records, "want", want)
 		var resp actionResponse
 		if err := h.do(ctx, http.MethodPost, rrPath+"/actions/set_records", map[string]any{"records": want}, &resp); err != nil {
 			return fmt.Errorf("set records: %w", err)
@@ -128,6 +131,7 @@ func (h *Hetzner) Upsert(ctx context.Context, rec provider.Record, addr netip.Ad
 		}
 	}
 	if cur.RRSet.TTL == nil || *cur.RRSet.TTL != rec.TTL {
+		slog.Debug("ttl differs, changing", "zone", zone, "name", name, "type", rec.Type, "want", rec.TTL)
 		var resp actionResponse
 		if err := h.do(ctx, http.MethodPost, rrPath+"/actions/change_ttl", map[string]any{"ttl": rec.TTL}, &resp); err != nil {
 			return fmt.Errorf("change ttl: %w", err)
@@ -167,6 +171,7 @@ func (h *Hetzner) wait(ctx context.Context, a action) error {
 		}
 		a = resp.Action
 	}
+	slog.Debug("hetzner action finished", "id", a.ID, "status", a.Status)
 	if a.Status == "error" {
 		if a.Error != nil {
 			return fmt.Errorf("action %d failed: %s: %s", a.ID, a.Error.Code, a.Error.Message)
@@ -193,11 +198,15 @@ func (h *Hetzner) do(ctx context.Context, method, path string, in, out any) erro
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	start := time.Now()
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	// Never log headers or bodies: the Authorization header carries the token.
+	slog.Debug("hetzner api request", "method", method, "path", path, "status", resp.StatusCode,
+		"duration", time.Since(start).Round(time.Millisecond), "ratelimit_remaining", resp.Header.Get("RateLimit-Remaining"))
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return err

@@ -4,13 +4,16 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"regexp"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
+	LogLevel  string                    `yaml:"log_level"` // debug, info, warn, error
 	Interval  time.Duration             `yaml:"interval"`
 	IPSources IPSources                 `yaml:"ip_sources"`
 	Providers map[string]ProviderConfig `yaml:"providers"`
@@ -37,6 +40,8 @@ type Record struct {
 	TTL      int    `yaml:"ttl"`
 }
 
+var quotedValue = regexp.MustCompile("`[^`]*`")
+
 var (
 	defaultIPv4 = []string{"https://api.ipify.org", "https://ipv4.icanhazip.com"}
 	defaultIPv6 = []string{"https://api6.ipify.org", "https://ipv6.icanhazip.com"}
@@ -50,7 +55,9 @@ func Load(path string) (*Config, error) {
 	}
 	var c Config
 	if err := yaml.Unmarshal([]byte(os.ExpandEnv(string(raw))), &c); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		// yaml errors quote (a prefix of) the offending value in backticks,
+		// which may be an expanded secret such as an API token.
+		return nil, fmt.Errorf("parse %s: %s", path, quotedValue.ReplaceAllString(err.Error(), "`[REDACTED]`"))
 	}
 	c.applyDefaults()
 	return &c, c.Validate()
@@ -75,6 +82,12 @@ func (c *Config) applyDefaults() {
 
 func (c *Config) Validate() error {
 	var errs []error
+	if c.LogLevel != "" {
+		var l slog.Level
+		if err := l.UnmarshalText([]byte(c.LogLevel)); err != nil {
+			errs = append(errs, fmt.Errorf("log_level: %w", err))
+		}
+	}
 	if len(c.Records) == 0 {
 		errs = append(errs, errors.New("no records configured"))
 	}

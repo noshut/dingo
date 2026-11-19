@@ -11,6 +11,7 @@ import (
 
 	"github.com/noshut/dingo/internal/config"
 	"github.com/noshut/dingo/internal/ipdetect"
+	"github.com/noshut/dingo/internal/logging"
 	"github.com/noshut/dingo/internal/provider"
 	"github.com/noshut/dingo/internal/updater"
 
@@ -25,6 +26,8 @@ func main() {
 	cfgPath := flag.String("config", envOr("DINGO_CONFIG", "/etc/dingo/config.yaml"), "path to config file")
 	once := flag.Bool("once", false, "run a single update and exit")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	logLevel := flag.String("log-level", os.Getenv("DINGO_LOG_LEVEL"), "log level: debug, info, warn, error (overrides config)")
+	debug := flag.Bool("debug", false, "shortcut for -log-level debug")
 	flag.Parse()
 
 	if *showVersion {
@@ -32,7 +35,10 @@ func main() {
 		return
 	}
 
-	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	level := new(slog.LevelVar)
+	redactor := &logging.Redactor{}
+	log := logging.New(os.Stdout, level, redactor)
+	slog.SetDefault(log)
 
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
@@ -40,8 +46,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Precedence: -debug > -log-level / DINGO_LOG_LEVEL > config > info.
+	lvl := cfg.LogLevel
+	if *logLevel != "" {
+		lvl = *logLevel
+	}
+	if *debug {
+		lvl = "debug"
+	}
+	if lvl != "" {
+		l, err := logging.ParseLevel(lvl)
+		if err != nil {
+			log.Error("invalid log level", "level", lvl, "err", err)
+			os.Exit(1)
+		}
+		level.Set(l)
+	}
+
 	providers := map[string]provider.Provider{}
 	for name, pc := range cfg.Providers {
+		for k, v := range pc.Settings {
+			if logging.IsSensitiveKey(k) {
+				redactor.Add(v)
+			}
+		}
+		log.Debug("provider configured", "provider", name, "type", pc.Type)
 		p, err := provider.New(pc.Type, pc.Settings)
 		if err != nil {
 			log.Error("provider init failed", "provider", name, "err", err)
@@ -69,6 +98,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	log.Debug("config loaded", "path", *cfgPath, "interval", cfg.Interval, "records", len(cfg.Records), "level", level.Level())
 	if *once {
 		u.RunOnce(ctx)
 		return
