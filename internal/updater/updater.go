@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/noshut/dingo/internal/ipdetect"
@@ -26,10 +27,22 @@ type Updater struct {
 	// last successfully published address per target index; avoids API calls
 	// when the IP is unchanged.
 	last map[int]netip.Addr
+
+	mu       sync.RWMutex
+	detected map[ipdetect.Family]netip.Addr // last successfully detected address
 }
 
-// Run executes one sync immediately and then every Interval until ctx is done.
-func (u *Updater) Run(ctx context.Context) {
+// CurrentAddr returns the last successfully detected address of a family.
+// Safe for concurrent use.
+func (u *Updater) CurrentAddr(fam ipdetect.Family) netip.Addr {
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+	return u.detected[fam]
+}
+
+// Run executes one sync immediately and then every Interval until ctx is
+// done. A receive on trigger starts an extra sync right away.
+func (u *Updater) Run(ctx context.Context, trigger <-chan struct{}) {
 	ticker := time.NewTicker(u.Interval)
 	defer ticker.Stop()
 	for {
@@ -38,6 +51,9 @@ func (u *Updater) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-trigger:
+			u.Log.Info("sync triggered")
+			ticker.Reset(u.Interval)
 		}
 	}
 }
@@ -59,6 +75,12 @@ func (u *Updater) RunOnce(ctx context.Context) {
 				u.Log.Error("ip detection failed", "family", fam, "err", err)
 			} else {
 				u.Log.Debug("public ip detected", "family", fam, "addr", addr)
+				u.mu.Lock()
+				if u.detected == nil {
+					u.detected = map[ipdetect.Family]netip.Addr{}
+				}
+				u.detected[fam] = addr
+				u.mu.Unlock()
 			}
 			addrs[fam] = addr // cache invalid addr too, so we don't retry per record
 		}

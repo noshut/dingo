@@ -5,15 +5,18 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/noshut/dingo/internal/config"
 	"github.com/noshut/dingo/internal/ipdetect"
 	"github.com/noshut/dingo/internal/logging"
 	"github.com/noshut/dingo/internal/provider"
 	"github.com/noshut/dingo/internal/updater"
+	"github.com/noshut/dingo/internal/watch"
 
 	// Provider implementations register themselves via init().
 	_ "github.com/noshut/dingo/internal/provider/hetzner"
@@ -103,9 +106,37 @@ func main() {
 		u.RunOnce(ctx)
 		return
 	}
-	log.Info("dingo started", "version", version, "interval", cfg.Interval, "records", len(u.Targets))
-	u.Run(ctx)
+	trigger := make(chan struct{}, 1)
+	if cfg.Watch.Enabled {
+		startWatcher(ctx, cfg.Watch, u, trigger, log)
+	}
+	log.Info("dingo started", "version", version, "interval", cfg.Interval, "records", len(u.Targets), "watch", cfg.Watch.Enabled)
+	u.Run(ctx, trigger)
 	log.Info("dingo stopped")
+}
+
+func startWatcher(ctx context.Context, wc config.Watch, u *updater.Updater, trigger chan struct{}, log *slog.Logger) {
+	pinger := &watch.ICMPPinger{Timeout: 2 * time.Second}
+	if err := pinger.Probe(); err != nil {
+		log.Warn("ip watch disabled", "err", err)
+		return
+	}
+	w := &watch.Watcher{
+		Interval:    wc.Interval,
+		Failures:    wc.Failures,
+		MaxBackoff:  u.Interval,
+		Pinger:      pinger,
+		CurrentAddr: func() netip.Addr { return u.CurrentAddr(ipdetect.IPv4) },
+		Trigger: func() {
+			select {
+			case trigger <- struct{}{}:
+			default: // a sync is already pending
+			}
+		},
+		Log: log,
+	}
+	log.Debug("ip watch started", "interval", wc.Interval, "failures", wc.Failures)
+	go w.Run(ctx)
 }
 
 func envOr(key, def string) string {

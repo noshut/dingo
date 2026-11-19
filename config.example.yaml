@@ -28,3 +28,9 @@ records:
     zone: example.com
     name: "@"   # zone apex
     type: A
+
+# Optional: ping the public IPv4 to detect line outages / IP changes early.
+# watch:
+#   enabled: true
+#   interval: 15s
+#   failures: 2
